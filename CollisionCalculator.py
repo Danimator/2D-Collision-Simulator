@@ -59,11 +59,10 @@ e = float(input("Please enter the coefficient of restitution: "))
 # Conservation of momentum gives:
 # m1*v1x + m2*v2x = m1*v1fx + m2*v2fx
 # m1*v1y + m2*v2y = m1*v1fy + m2*v2fy
-
+# v2fx = v2x (implied from inspection of forces)
+# v1fx = v1x (implied from inspection of forces)
 
 # Coefficient of restitution gives: 
-# v2fx = v2x
-# v1fx = v1x 
 # v2fy - v1fy = e*v1y - e*v2y
 
 # We construct a system indexed by [v1fy, v2fy]:
@@ -79,12 +78,12 @@ v1fx = v1x
 v2fx = v2x 
 
 system = [
-    [m1, m2]
+    [m1, m2],
     [-1, 1]
 ]
 
 answers = [
-    m1*v1y+m2*v2y
+    m1*v1y+m2*v2y,
     e*(v1y - v2y)
 ]
 

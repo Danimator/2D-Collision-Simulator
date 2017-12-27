@@ -4,16 +4,21 @@
         <title>2D Collision Simulator</title>
         <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
         <script src="jquery-3.2.1.min.js" type="text/javascript"></script>
-        <script src="collision_calculation.js" type="text/javascript"></script>
+        <script src="matrices.js" type="text/javascript"></script>
         <style type="text/css">
             body{
                 margin: 0;
                 background-color: #00BFA5;
                 overflow-x: hidden;
                 font-family: 'Roboto', sans-serif;
-
+                display: inline-block;
+                width: 100%;
             }
-
+            #container{
+                overflow: hidden;
+                position: relative;
+                height: 720px;
+            }
             .ball{
                 border-radius: 50%;
                 height: 32px;
@@ -68,11 +73,12 @@
                 padding-right: 2%;
                 top: 85%;
                 background-color: white;
-                position: absolute;
+                position: relative;
                 color: rgb(64,64,64);
                 padding-top: 15px;
                 padding-bottom: 30px;
                 z-index: 100000000;
+                box-shadow: 0px -2px 20px rgba(0,0,0,0.2);
             }
 
             #info > h1, h3{
@@ -85,6 +91,12 @@
                 //border: 1px white dotted;
                 position: absolute;
                 transform-origin: left;
+                transition: opacity 0.8s;
+                -webkit-transition: opacity 0.8s;
+                opacity: 1;
+            }
+            .hide{
+                opacity: 0;
             }
             #d3, #d4{
                 background-color: rgba(250,250,250,0.5);
@@ -101,21 +113,43 @@
                 margin-top: 5px;
                 margin-bottom: 10px;
             }
+            #toggler{
+                margin-left: 9px;
+                padding: 7px;
+                margin-bottom: 10px;
+                background-color: white;
+                border: 1px solid black;
+                color: black;
+                font-family: 'Roboto', sans-serif;
+                cursor: pointer;
+                transition: all 0.4s;
+                -webkit-transition: all 0.4s;
+            }
+            #toggler:hover{
+                background-color: black;
+                border: 1px solid white;
+                color: white;
+            }
         </style>
     </head>
     <body>
-        <div id='d3' class='dotted'></div>
-        <div id='d4' class='dotted'></div>
-        <div id='d1' class='dotted'></div>
-        <div id='d2' class='dotted'></div>
-        <div id='ball1' class='ball'>1</div>
-        <div id='ball2' class='ball'>2</div>
-        <div id='collisionline'></div>
-        <div id='balloutline1' class='balloutline'></div>
-        <div id='balloutline2' class='balloutline'></div>
-
+        <div id='container'>
+            <div id='d3' class='dotted'></div>
+            <div id='d4' class='dotted'></div>
+            <div id='d1' class='dotted'></div>
+            <div id='d2' class='dotted'></div>
+            <div id='ball1' class='ball'>1</div>
+            <div id='ball2' class='ball'>2</div>
+            <div id='collisionline'></div>
+            <div id='balloutline1' class='balloutline'></div>
+            <div id='balloutline2' class='balloutline'></div>
+        </div>
         <div id='info'>
             <h1 style='margin-left: 9px'>2D Collision Calculator</h1>
+            <p style='margin-left:9px; font-weight:300;'>
+                A simulator and calculator for oblique central impacts in a 2D plane. All aspects of the collision are adjustable via the table below, but velocities in particular may be changed by dragging the disks above. 
+            </p>
+            <button type='button' id='toggler' onclick='togglePlay()'>Start Simulation</button>
             <table style='width: 100%;' cellspacing="10">
                 <tr>
                     <td>
@@ -163,8 +197,8 @@
                 </tr>
                     <td colspan='2'>
                         <h3>Coefficient of Restitution (e)</h3>
-                        Note that e = 0 represents a perfectly inelastic collision, while e = 1 represents an elastic collision. <br>
-                        <input type="number" name="e" id="ein" class="numb" value="0.8" min="0" max="1" data-show-value="true" step=0.01 oninput="this.value = Math.min(Math.max(0, this.value), 1)">
+                        <input type="number" name="e" id="ein" class="numb" value="0.8" min="0" max="1" data-show-value="true" step=0.01 oninput="this.value = Math.min(Math.max(0, this.value), 1)"> <br>
+                        <input type="checkbox" id="sticky" onclick='sticky()'> Perfectly Inelastic
                     </td>
                 <tr>
             </table>
@@ -188,6 +222,10 @@
             var outline2 = document.getElementById("balloutline2");
             var ball1 = document.getElementById("ball1");
             var ball2 = document.getElementById("ball2");
+            var playing = false;
+            var interval = null;
+            var collided = false;
+            var ein_cached = 0;
 
             function fixres(){
                 var w = window.innerWidth;
@@ -205,6 +243,7 @@
                 ball2.style.left = w*0.50 - v2*10*Math.cos(b*Math.PI/180) + 'px';
                 ball1.style.top = h*0.45 - 26 - v1*10*Math.sin(a*Math.PI/180) + 'px';
                 ball2.style.top = h*0.45 + 26 + v2*10*Math.sin(b*Math.PI/180) + 'px';
+                document.getElementById("container").style.height = h*0.85+'px';
             }
 
             function acopy(o) { // found on https://www.codementor.io/avijitgupta/deep-copying-in-js-7x6q8vh5d
@@ -224,48 +263,77 @@
                 var v1y = -v1*Math.sin(a*Math.PI/180);
                 var v2y = v2*Math.sin(b*Math.PI/180);
 
-                /*var system = [
-                    [m1, m2, 0, 0],
-                    [0, 0, m1, m2],
-                    [-1, 1, 0, 0],
-                    [0, 0, -1, 1]
-                ];
+                if(!document.getElementById("sticky").checked){ // Not a perfectly inelastic collision
+                    var system = [
+                        [m1, m2],
+                        [-1, 1]
+                    ];
+                    var answers = [
+                        m1*v1y + m2*v2y,
+                        e*(v1y - v2y)
+                    ];
 
-                var answers = [
-                    m1*v1x + m2*v2x,
-                    m1*v1y + m2*v2y,
-                    e*(v1x - v2x),
-                    e*(v1y - v2y)
-                ];*/
-                var system = [
-                    [m1, m2],
-                    [-1, 1]
-                ];
-                var answers = [
-                    m1*v1y + m2*v2y,
-                    e*(v1y - v2y)
-                ];
+                    var v1fy = cramer(acopy(system), answers, 0);
+                    var v2fy = cramer(acopy(system), answers, 1);
+                    var v1fx = v1x;
+                    var v2fx = v2x;
+                    v1f = Math.round(hypotenuse(v1fx, v1fy)*1000000000000)/1000000000000;
+                    v2f = Math.round(hypotenuse(v2fx, v2fy)*1000000000000)/1000000000000;
 
-                var v1fy = cramer(acopy(system), answers, 0);
-                var v2fy = cramer(acopy(system), answers, 1);
-                var v1fx = v1x;
-                var v2fx = v2x;
-                v1f = Math.round(hypotenuse(v1fx, v1fy)*1000000000000)/1000000000000;
-                v2f = Math.round(hypotenuse(v2fx, v2fy)*1000000000000)/1000000000000;
+                    af = 0;
+                    bf = 0;
+                    if(v1f != 0){
+                        af = Math.round(Math.asin(Math.max(Math.min(1, v1fy/v1f), -1))*180/Math.PI*1000000000000)/1000000000000;
+                    }
+                    if (v2f != 0){
+                        bf = Math.round(Math.asin(Math.max(Math.min(1, v2fy/v2f), -1))*180/Math.PI*1000000000000)/1000000000000;
+                    }
 
+                    klost = -((0.5*m1*v1f*v1f+0.5*m2*v2f*v2f)-(0.5*m1*v1*v1+0.5*m2*v2*v2)); 
+                    if(e == 1){
+                        klost = 0; // remove approximation errors
+                    }
+                } else{
+                    var system = [ //indexed by vfx, vfy
+                        [m1+m2, 0],
+                        [0, m1+m2]
+                    ];
+                    var answers = [
+                        m1*v1x + m2*v2x,
+                        m1*v1y + m2*v2y
+                    ];
 
-                af = 0;
-                bf = 0;
-                if(v1f != 0){
-                    af = Math.round(Math.asin(Math.max(Math.min(1, v1fy/v1f), -1))*180/Math.PI*1000000000000)/1000000000000;
+                    var vfx = cramer(acopy(system), answers, 0);
+                    var vfy = cramer(acopy(system), answers, 1);
+                    
+                    v1f = Math.round(hypotenuse(vfx, vfy)*1000000000000)/1000000000000;
+                    v2f = v1f;
+
+                    af = 0;
+                    bf = 0;
+                    if(v1f != 0){
+                        af = Math.round(Math.asin(Math.max(Math.min(1, vfy/v1f), -1))*180/Math.PI*1000000000000)/1000000000000;
+                        bf = Math.round(Math.asin(Math.max(Math.min(1, vfy/v1f), -1))*180/Math.PI*1000000000000)/1000000000000;
+                    }
+                    klost = -((0.5*(m1+m2)*v1f*v1f) - (0.5*m1*v1*v1 + 0.5*v2*v2));
+
                 }
-                if (v2f != 0){
-                    bf = Math.round(Math.asin(Math.max(Math.min(1, v2fy/v2f), -1))*180/Math.PI*1000000000000)/1000000000000;
+
+
+            }
+
+            function sticky(){
+                if(document.getElementById("sticky").checked){
+                    ein_cached = document.getElementById("ein").value;
+                    document.getElementById("ein").value = 0;
+                    document.getElementById("ein").disabled = true;
+                } else{
+                    document.getElementById("ein").disabled = false;
+                    document.getElementById("ein").value = ein_cached;
                 }
-                klost = -((0.5*m1*v1f*v1f+0.5*m2*v2f*v2f)-(0.5*m1*v1*v1+0.5*m2*v2*v2)); 
-                if(klost < 0.000000001){
-                    klost = 0; // probably elastic, remove approximation error.
-                }
+                stopAnimation();
+                calculateResult(m1, m2, v1, v2, a, b, e);
+                adjustVisuals();
             }
 
             function adjustVisuals(){
@@ -306,11 +374,105 @@
                 document.getElementById("bout").value = -bf;
                 document.getElementById("klost").value = klost;
             }
+
+            function togglePlay(){
+                if(playing){
+                    stopAnimation();
+                } else{
+                    startAnimation();
+                }
+            }
+
+            function startAnimation(){
+                interval = setInterval(function(){animate();}, 20);
+                playing = true;
+                document.getElementById("toggler").innerHTML = "Stop Simulation";
+            }
+            function out(id){
+                var ball = document.getElementById(id);
+                var x = parseFloat(ball.style.left);
+                var y = parseFloat(ball.style.top);
+
+                return ((x > window.innerWidth+27) ||
+                        (y < -27) ||
+                        (y > window.innerHeight+27))
+            }
+            function animate(){
+                if(out("ball1") && out("ball2")){
+                    stopAnimation();
+                }
+                var lines = document.getElementsByClassName("dotted");
+                for(var i =0; i<lines.length; i++){ // make sure preview lines are hidden
+                    if(!lines[i].classList.contains("hide")){
+                        lines[i].classList.add("hide");
+                    }
+                }
+
+                b1x = parseFloat(ball1.style.left);
+                b1y = parseFloat(ball1.style.top);
+                b2x = parseFloat(ball2.style.left);
+                b2y = parseFloat(ball2.style.top);
+                if(b1x == parseFloat(outline1.style.left)
+                        && b2x == parseFloat(outline2.style.left)
+                        && b1y == parseFloat(outline1.style.top)
+                        && b2y == parseFloat(outline2.style.top)){
+                        collided = true;
+                }
+                if(b1x <= parseFloat(outline1.style.left)
+                    && b2x <= parseFloat(outline2.style.left)
+                    && b1y <= parseFloat(outline1.style.top)
+                    && b2y >= parseFloat(outline2.style.top)
+                    && !collided){
+
+                    var v1x = v1*Math.cos(a*Math.PI/180)/6;
+                    var v2x = v2*Math.cos(b*Math.PI/180)/6;
+
+                    var v1y = v1*Math.sin(a*Math.PI/180)/6;
+                    var v2y = v2*Math.sin(b*Math.PI/180)/6;
+                    ball1.style.left = Math.min(b1x + v1x, parseFloat(outline1.style.left)) + 'px';
+                    ball1.style.top = Math.min(b1y + v1y, parseFloat(outline1.style.top)) + 'px';
+
+                    ball2.style.left = Math.min(b2x + v2x, parseFloat(outline2.style.left)) + 'px';
+                    ball2.style.top = Math.max(b2y - v2y, parseFloat(outline2.style.top)) + 'px';
+                } else{
+                    collided = true;
+                    var v1x = v1f*Math.cos(af*Math.PI/180)/6;
+                    var v2x = v2f*Math.cos(bf*Math.PI/180)/6;
+
+                    var v1y = v1f*Math.sin(af*Math.PI/180)/6;
+                    var v2y = v2f*Math.sin(bf*Math.PI/180)/6;
+                    ball1.style.left = b1x + v1x + 'px';
+                    ball1.style.top = b1y - v1y + 'px';
+                    ball2.style.left = b2x + v2x + 'px';
+                    ball2.style.top = b2y - v2y + 'px';
+                }
+            }
+
+            function stopAnimation(){
+                clearInterval(interval);
+                setTimeout(function(){ //wait until we are sure we are finished playing the animation. 
+                    document.getElementById("toggler").innerHTML = "Start Simulation";
+                    var w = window.innerWidth;
+                    var h = window.innerHeight;
+                    var lines = document.getElementsByClassName("dotted");
+                    for(var i =0; i<lines.length; i++){ 
+                        document.getElementById(lines[i].id).classList.remove('hide');
+                    }
+                    ball1.style.left = w*0.50 - v1*10*Math.cos(a*Math.PI/180) + 'px';
+                    ball2.style.left = w*0.50 - v2*10*Math.cos(b*Math.PI/180) + 'px';
+                    ball1.style.top = h*0.45 - 26 - v1*10*Math.sin(a*Math.PI/180) + 'px';
+                    ball2.style.top = h*0.45 + 26 + v2*10*Math.sin(b*Math.PI/180) + 'px';
+                    playing = false;
+                    collided = false;
+                }, 100);
+            }
+
             fixres();
             calculateResult(m1, m2, v1, v2, a, b, e);
             adjustVisuals();
 
             window.onresize = function(event){
+                stopAnimation();
                 fixres();
                 adjustVisuals();
             };
@@ -320,30 +482,36 @@
             $(document).ready(function(){
                 $('.ball').on({
                     mousedown: function(){
-                        draggedElem = $(this);
-                        $('html').addClass('cursormove');
+                        if(!playing){
+                            draggedElem = $(this);
+                            $('html').addClass('cursormove');
+                        }
                     },
                     mouseup: function(){
-                        draggedElem = null;
-                        calculateResult(m1, m2, v1, v2, a, b, e);
-                        adjustVisuals();
-                        $('html').removeClass('cursormove');
+                        if(!playing){
+                            draggedElem = null;
+                            calculateResult(m1, m2, v1, v2, a, b, e);
+                            adjustVisuals();
+                            $('html').removeClass('cursormove');
+                        }
                     }
                 });
 
                 $(document).on({
                     mouseup: function(){
-                        draggedElem = null;
-                        calculateResult(m1, m2, v1, v2, a, b, e);
-                        adjustVisuals();
-                        $('html').removeClass('cursormove');
+                        if(!playing){
+                            draggedElem = null;
+                            calculateResult(m1, m2, v1, v2, a, b, e);
+                            adjustVisuals();
+                            $('html').removeClass('cursormove');
+                        }
                     }
                 });
                 $(document).mousemove(function (ev){
                     var h = window.innerHeight;
                     var w = window.innerWidth;
                     var flag = true;
-                    if(draggedElem){ /*&& ((parseFloat(draggedElem.css('top')) <= (h*0.45-26) && ev.pageY <= (h*0.45-26)) ||
+                    if(draggedElem && !playing){ /*&& ((parseFloat(draggedElem.css('top')) <= (h*0.45-26) && ev.pageY <= (h*0.45-26)) ||
                         (parseFloat(draggedElem.css('top')) >= (h*0.45+26) && ev.pageY >= (h*0.45+26))) &&
                         (ev.pageX <= w/2)){*/
                             var moveX = ev.pageX;
@@ -389,14 +557,17 @@
                             }
                     } else{
                         draggedElem = null;
-                        calculateResult(m1, m2, v1, v2, a, b, e);
-                        adjustVisuals();
+                        //calculateResult(m1, m2, v1, v2, a, b, e);
+                        //adjustVisuals();
                         $('html').removeClass('cursormove');
                     }
                 });
             });
 
             document.oninput = function (event) {
+                if(playing){
+                    stopAnimation();
+                }
                 v1 = parseFloat(document.getElementById("v1in").value);
                 v2 = parseFloat(document.getElementById("v2in").value);
                 m1 = parseFloat(document.getElementById("m1in").value);
