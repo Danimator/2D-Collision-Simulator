@@ -1,4 +1,4 @@
-var colors = ['#F44336', '#E91E63', '#9C27B0', '#FB8C00', '#00BFA5', '#00BFA5'];
+var colors = ['#F44336', '#9C27B0','#00BFA5', '#00BFA5'];
 var color_select = Math.floor(Math.random() * colors.length);
 document.body.style.backgroundColor = colors[color_select];
 
